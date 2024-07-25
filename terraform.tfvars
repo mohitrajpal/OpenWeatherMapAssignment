@@ -1,0 +1,9 @@
+bucket_name = "tf-state-owm"
+table_name = "tf-state-locks-owm"
+owm_table_name = "owm-table"
+vpcid = "vpc-abcdefg"
+subnet_ids = ["subnet-01239a", "subnet-0123456", "subnet-1232as"]
+vpc_cidr = "10.0.0.0/26"
+api_key = "xxxxxxxxxx"
+s3_prefix = "pl-abcde"
+dynamodb_prefix = "pl-fghij"
