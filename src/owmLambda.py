@@ -17,7 +17,8 @@ ssm_client = boto3.client('ssm')
 dynamodb_client = boto3.client('dynamodb')
 
 
-# Function that returns unix utc timestamps for the past 7 days.
+'''Function that returns unix utc timestamps for the past 7 days. 
+Timestamps are generated for the past 7 days every 2 hours.'''
 
 
 def generate_datetimes(date_from_str=str(datetime.date.today() - datetime.timedelta(days=7)), days=7):
@@ -48,6 +49,9 @@ def get_lat_lon(api_key):
     return nyc_lat_lon
 
 
+'''Function that returns dynamodb table item. Function throws exception if table does not exist'''
+
+
 def get_dynamodb_item(time_id):
     try:
         dynamodb_item = dynamodb_client.get_item(
@@ -72,6 +76,9 @@ def get_dynamodb_item(time_id):
         sys.exit(1)
 
 
+'''Function that writes item to dynamodb table.'''
+
+
 def write_dynamodb_item(payload):
     dynamodb_payload = dict()
     for key, value in payload.items():
@@ -94,14 +101,22 @@ https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API k
 
 def get_current_weather(api_key):
     current_weather_doc = dict()
+    # Get latitude and longitude New York City
     lat_lon = get_lat_lon(api_key)
+
     current_weather_api = OWMAPIURL + '/data/2.5/weather?units=metric&lat=' + lat_lon['lat'] + '&lon=' + lat_lon[
         'lon'] + '&appid=' + api_key
     logging.info("Getting current weather for New York City")
+
+    # Query the OpenWeatherMap API to get current weather for New York City
     response = requests.get(current_weather_api)
+
+    # Check the response code
     if response.status_code == 200:
         response_data = response.json()
         logging.info(response_data)
+
+        # Build the current weather doc
         if 'name' in response_data:
             current_weather_doc['Name'] = response_data['name']
         if 'main' in response_data:
@@ -122,10 +137,16 @@ def get_current_weather(api_key):
                 '%Y-%m-%d %H:%M:%S')
         current_weather_doc['ingestion_time'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+        '''Write the current weather document to dynamodb table. Primary Key: TimeId. 
+        TimeId = str(current_unix_timestamp)_current'''
         write_dynamodb_item({'TimeId': str(datetime.datetime.now().strftime('%s')) + "_current"} | current_weather_doc)
         logging.info("Current Weather for New York City: {}".format(current_weather_doc))
         logging.info("Getting data for the past 7 days")
+
+        # Get Historical Weather Data for  the past 7 days
         historical_weather = get_historical_weather(api_key)
+
+        # Check if Average is returned in historical_weather
         if 'Average' in historical_weather['body']:
             current_weather_doc['Average'] = historical_weather['body']['Average']
             return {'statusCode': 200, 'body': json.dumps(current_weather_doc, indent=4)}
@@ -151,12 +172,16 @@ def get_historical_weather(api_key):
     historical_average_data['Historical_Humidity(Percentage)'] = list()
     historical_average_data['Historical_Pressure(hPa)'] = list()
     historical_average_data['Historical_Wind_Speed(m/sec)'] = list()
+
+    # Get latitude and longitude New York City
     lat_lon = get_lat_lon(api_key)
+
     datetimes = generate_datetimes()
     if not datetimes:
         logging.error('Unable to generate date times for the past 7 days')
         sys.exit(1)
     else:
+        # Check if historical data exists in dynamodb for the past 7 days. If it does then return the data.
         dynamodb_it = get_dynamodb_item((str(datetimes[-1]) + '_avg'))
         if dynamodb_it is not None:
             response = dict()
@@ -165,6 +190,7 @@ def get_historical_weather(api_key):
                     response[key] = value['S']
             return {'statusCode': 200, 'body': response}
         else:
+            # Get historical weather data for the past 7 days.
             for date_time in datetimes:
                 historical_weather_api = OWMAPIURL + '/data/3.0/onecall/timemachine?units=metric&lat=' + lat_lon[
                     'lat'] + '&lon=' + lat_lon['lon'] + '&appid=' + api_key + '&dt=' + str(date_time)
@@ -195,6 +221,8 @@ def get_historical_weather(api_key):
                     return {'statusCode': response.status_code, 'body':
                         {'Unable to fetch fetch historical data for the past 7 days, Error Code: {}'.format(
                             response.status_code)}}
+
+    # Calculate Average Temperature, Pressure, Humidity and Wind Speed
     if not historical_average_data['Historical_Temperature(Celsius)']:
         logging.warning('No temperature data found for the past 7 days')
     else:
@@ -220,16 +248,23 @@ def get_historical_weather(api_key):
             historical_average_data['Historical_Wind_Speed(m/sec)']) / len(
             historical_average_data['Historical_Wind_Speed(m/sec)'])
     historical_weather_data['Average'] = json.dumps(historical_weather_data['Average'])
+
     write_payload = {'TimeId': (str(datetimes[-1]) + '_avg')} | historical_weather_data
-    # logging.info(write_payload)
+
+    '''Write the current weather document to dynamodb table. Primary Key: TimeId. 
+    TimeId = str(last_unix_timestamp_in_datetimes)_avg'''
     write_dynamodb_item(write_payload)
+
     return {'statusCode': 200, 'body': historical_weather_data}
 
 
 def lambda_handler(event, context):
     try:
+        # Get API Key from SSM
         api_key_ssm = ssm_client.get_parameter(Name='/owm/owmapikey', WithDecryption=True)
         api_key = api_key_ssm['Parameter']['Value']
+
+        # Check the path in event.
         if event['rawPath'] == '/test/getWeatherNyc':
             return get_current_weather(api_key)
         else:

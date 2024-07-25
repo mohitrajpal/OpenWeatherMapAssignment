@@ -1,5 +1,6 @@
 data "aws_caller_identity" "current" {}
 
+# Create Security Group for VPC endpoints. Ingress: VPC_CIDR at port 443
 resource "aws_security_group" "vpcendpoints-sg" {
  name        = "vpcendpoints-sg"
  description = "Allow HTTPS to vpc cidr"
@@ -13,6 +14,7 @@ ingress {
  }
 }
 
+# Create Interface VPC Endpoint for SSM. Used to get SSM Parameter from VPC bound lambda function.
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id       = var.vpcid
   service_name = "com.amazonaws.${var.region}.ssm"
@@ -24,12 +26,14 @@ resource "aws_vpc_endpoint" "ssm" {
   subnet_ids = [var.subnet_ids[0], var.subnet_ids[1], var.subnet_ids[2]]
 }
 
+# Create Gateway Endpoint for dynamodb. Used for reading/writing dynamodb items from VPC bound lambda function.
 resource "aws_vpc_endpoint" "dynamodb" {
   vpc_id       = var.vpcid
   service_name = "com.amazonaws.${var.region}.dynamodb"
 }
 
 
+# Generate Customer Managed KMS Key used for encrypting SSM Parameters.
 resource "aws_kms_key" "ssm-kms" {
   description             = "kms key for ssm"
   enable_key_rotation     = true
@@ -50,6 +54,7 @@ resource "aws_kms_key" "ssm-kms" {
   })
 }
 
+# Generate Customer Managed KMS Key used for encrypting Dyanmodb tables.
 resource "aws_kms_key" "dynamodb-kms" {
   description             = "kms key for dynamodb"
   enable_key_rotation     = true
@@ -70,6 +75,7 @@ resource "aws_kms_key" "dynamodb-kms" {
   })
 }
 
+# Generate Customer Managed KMS Key used for encrypting S3 buckets.
 resource "aws_kms_key" "s3-kms" {
   description             = "kms key for s3"
   enable_key_rotation     = true
@@ -90,10 +96,12 @@ resource "aws_kms_key" "s3-kms" {
   })
 }
 
+# Create S3 bucket for Terraform Remote State Management
 resource "aws_s3_bucket" "state_bucket" {
   bucket = var.bucket_name
 }
 
+# Block public access to Terraform Remote State Management S3 bucket.
 resource "aws_s3_bucket_public_access_block" "state_bucket_access" {
   bucket = aws_s3_bucket.state_bucket.id
 
@@ -103,6 +111,7 @@ resource "aws_s3_bucket_public_access_block" "state_bucket_access" {
   restrict_public_buckets = true
 }
 
+# Enable versioning for Terraform Remote State Management S3 bucket
 resource "aws_s3_bucket_versioning" "state_bucket_versioning" {
   bucket = aws_s3_bucket.state_bucket.id
   versioning_configuration {
@@ -110,6 +119,7 @@ resource "aws_s3_bucket_versioning" "state_bucket_versioning" {
   }
 }
 
+# Encrypt Terraform Remote State Management S3 bucket with Customer Managed KMS Key.
 resource "aws_s3_bucket_server_side_encryption_configuration" "state_bucket_encryption" {
   bucket = aws_s3_bucket.state_bucket.id
 
@@ -121,6 +131,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "state_bucket_encr
   }
 }
 
+# Create State Locking Dynamodb table and encrypt the table with Customer Managed KMS Key.
 resource "aws_dynamodb_table" "terraform_locks" {
   name         = var.table_name
   billing_mode = "PAY_PER_REQUEST"
@@ -137,6 +148,7 @@ resource "aws_dynamodb_table" "terraform_locks" {
   }
 }
 
+# Create SSM Parameter that is encrypted with Customer Managed KMS Key for OpenWeatherMap API.
 resource "aws_ssm_parameter" "owmapikey" {
   name  = "/owm/owmapikey"
   type  = "SecureString"

@@ -1,4 +1,5 @@
-# OpenWeatherMap API
+# OpenWeatherMap
+
 
 ## Prerequsites
 

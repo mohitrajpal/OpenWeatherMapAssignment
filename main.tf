@@ -1,3 +1,5 @@
+/*Create IAM Role for lambda. Lambda has read/write permissions to dynamodb and read only access to SSM.
+Role also has VPC access for Lambda Execution which has permissions for logging and monitoring of lambda function */
 resource "aws_iam_role" "owmlambdarole" {
   name = "owm_lambda_role"
   managed_policy_arns = ["arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess", 
@@ -53,6 +55,7 @@ resource "aws_iam_role" "owmlambdarole" {
   }
 }
 
+# Create OpenWeatherMap Dynamodb table and encrypt the table with Customer Managed KMS Key.
 resource "aws_dynamodb_table" "owm_table" {
   name         = var.owm_table_name
   billing_mode = "PAY_PER_REQUEST"
@@ -69,11 +72,13 @@ resource "aws_dynamodb_table" "owm_table" {
   }
 }
 
+# Create HTTP type API Gateway
 resource "aws_apigatewayv2_api" "weatherapigateway" {
   name          = "nycweatherapigateway"
   protocol_type = "HTTP"
 }
 
+# Create api gateway stage and enable api gateway logging
 resource "aws_apigatewayv2_stage" "test" {
   api_id = aws_apigatewayv2_api.weatherapigateway.id
   name        = "test"
@@ -97,6 +102,7 @@ resource "aws_apigatewayv2_stage" "test" {
   }
 }
 
+# Create api gateway integration that points to OpenWeatherMap Lambda.
 resource "aws_apigatewayv2_integration" "api_gw_integration" {
   api_id                    = aws_apigatewayv2_api.weatherapigateway.id
   integration_type          = "AWS_PROXY"
@@ -106,16 +112,19 @@ resource "aws_apigatewayv2_integration" "api_gw_integration" {
   payload_format_version    = "2.0"
 }
 
+# Create api gateway route for HTTP GET
 resource "aws_apigatewayv2_route" "api_gw_route" {
   api_id    = aws_apigatewayv2_api.weatherapigateway.id
   route_key = "GET /getWeatherNyc"
   target = "integrations/${aws_apigatewayv2_integration.api_gw_integration.id}"
 }
 
+# Create api gateway log group.
 resource "aws_cloudwatch_log_group" "nycweatherapi" {
   name = "/aws/apigateway/${aws_apigatewayv2_api.weatherapigateway.name}"
 }
 
+# Grant API Gateway access to invoke OpenWeatherMap lambda function
 resource "aws_lambda_permission" "lambda_permission" {
   statement_id  = "APIInvoke"
   action        = "lambda:InvokeFunction"
@@ -126,7 +135,8 @@ resource "aws_lambda_permission" "lambda_permission" {
   # within API Gateway.
   source_arn = "${aws_apigatewayv2_api.weatherapigateway.execution_arn}/*"
 }
- 
+
+# Create OpenWeatherMap lambda that is VPC bound. 
 resource "aws_lambda_function" "owm_lambda_func" {
 filename      = "${path.module}/src/owmLambda.zip"
 function_name = "owmLambda"
@@ -146,6 +156,7 @@ environment {
 }
 }
 
+# Create security group for OpenWeatherMap Lambda
 resource "aws_security_group" "owm-lambda-sg" {
  name        = "owm-lambda-sg"
  description = "Allow HTTPS to internet"

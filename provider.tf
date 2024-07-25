@@ -1,3 +1,4 @@
+# Configure terraform provider, s3 for remote state management and dynamodb for state locking.
 terraform {
   required_version = ">= 1.3"
   backend "s3" {
